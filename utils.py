@@ -4,6 +4,8 @@ import tempfile
 from pathlib import Path
 from typing import List, Dict
 import folder_paths
+import torch
+import numpy as np
 
 
 class ImageAnalyzer:
@@ -154,9 +156,14 @@ def convert_frames_to_mp4(frames: List[str], frame_rate: int, output_dir: str, s
     if not frames:
         raise ValueError("没有可用的帧进行转换")
     
-    # 生成输出文件名
-    source_name = Path(source_path).stem
-    output_path = Path(output_dir) / f"{source_name}.mp4"
+    # 生成输出文件路径
+    if source_path.endswith('.mp4'):
+        # 如果已经包含扩展名，直接使用
+        output_path = Path(output_dir) / source_path
+    else:
+        # 否则添加 .mp4 扩展名
+        source_name = Path(source_path).stem
+        output_path = Path(output_dir) / f"{source_name}.mp4"
     
     logging.info(f"创建视频，包含 {len(frames)} 帧，帧率 {frame_rate} FPS")
     
@@ -219,3 +226,56 @@ def setup_output_directory(output_dir: str) -> str:
     output_path.mkdir(parents=True, exist_ok=True)
     
     return str(output_path)
+
+
+def tensor_to_image_sequence(images: torch.Tensor, temp_dir: str, filename_prefix: str = "frame") -> List[str]:
+    """
+    将 IMAGE tensor 转换为图像序列文件
+    
+    Args:
+        images: ComfyUI IMAGE tensor，格式为 [B, H, W, C]，值范围 0.0-1.0
+        temp_dir: 临时文件目录
+        filename_prefix: 文件名前缀
+        
+    Returns:
+        图像文件路径列表
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        raise ImportError("需要安装PIL: pip install Pillow")
+    
+    logging.info(f"转换 IMAGE tensor 到图像序列，形状: {images.shape}")
+    
+    if len(images.shape) != 4 or images.shape[3] not in [3, 4]:
+        raise ValueError(f"不支持的图像tensor格式: {images.shape}，期望 [B, H, W, C]")
+    
+    frame_paths = []
+    temp_path = Path(temp_dir)
+    temp_path.mkdir(parents=True, exist_ok=True)
+    
+    # 遍历批量中的每张图像
+    for i in range(images.shape[0]):
+        # 提取单张图像 [H, W, C]
+        image_tensor = images[i]
+        
+        # 转换为 numpy 数组并调整数值范围到 0-255
+        image_np = (image_tensor.cpu().numpy() * 255.0).astype(np.uint8)
+        
+        # 确保是 RGB 格式
+        if image_np.shape[2] == 4:  # RGBA
+            # 转换 RGBA 到 RGB（简单方式：丢弃 alpha 通道）
+            image_np = image_np[:, :, :3]
+        
+        # 转换为 PIL Image
+        pil_image = Image.fromarray(image_np, 'RGB')
+        
+        # 保存为 PNG 文件
+        frame_filename = temp_path / f"{filename_prefix}_{i:04d}.png"
+        pil_image.save(frame_filename, 'PNG')
+        frame_paths.append(str(frame_filename))
+        
+        logging.debug(f"保存帧 {i}: {frame_filename}")
+    
+    logging.info(f"成功转换 {len(frame_paths)} 帧图像")
+    return frame_paths
