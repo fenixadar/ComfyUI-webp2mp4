@@ -1,0 +1,7 @@
+# 图像处理库 - 用于WEBP动画文件的分析和帧提取
+Pillow>=9.2.0
+
+# 视频处理库 - 用于将帧序列转换为MP4视频
+moviepy>=2.0.0
+
+# FFmpeg 不是 Python 依赖，但 moviepy 会在需要时调用系统的 ffmpeg
